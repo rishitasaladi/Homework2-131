@@ -1,0 +1,96 @@
+---
+title: "HW2"
+output: html_document
+date: "2022-10-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(tidyverse)
+abalone <- read_csv("abalone.csv")
+```
+
+1. Predict abalone age
+```{r}
+abalone$age <- abalone$rings + 1.5
+plot(abalone$age)
+```
+Assess and describe the distribution of age.
+  Majority of their ages seem to be between 8 to 13.
+
+2. 
+```{r}
+set.seed(1738)
+
+abalone_split <- initial_split(abalone, prop = 0.7, strata = age)
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+```
+
+
+3. Create a recipe predicting the outcome variable, age, with all other predictor variables.
+Explain why you shouldn’t use rings to predict age.
+```{r}
+abalone_recipe <- recipe(age ~ type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = abalone_train) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(~starts_with("type"):shucked_weight) %>%
+  step_interact(~longest_shell:diameter) %>%
+  step_interact(~shucked_weight:shell_weight) %>%
+  step_center(longest_shell, diameter, height, whole_weight, shucked_weight, viscera_weight, shell_weight) %>%
+  step_scale(longest_shell, diameter, height, whole_weight, shucked_weight, viscera_weight, shell_weight)
+
+abalone_recipe
+```
+Rings are directly correlated with age, so we can't use rings to predict age. 
+
+4. Create and store a linear regression object using the "lm" engine.
+```{r}
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+```
+
+
+5. Workflow set up
+```{r}
+lm_wkflow <- workflow() %>%
+  add_model(lm_model) %>%
+  add_recipe(abalone_recipe)
+lm_wkflow
+```
+
+
+6. Use your fit() object to predict the age of a hypothetical female abalone with longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1.
+```{r}
+lm_fit <- fit(lm_wkflow, abalone_train)
+lm_fit %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+new_obs <- tibble(
+  longest_shell = c(0.5), diameter = c(0.10), height = c(0.30), whole_weight = c(4), shucked_weight = c(1), viscera_weight = c(2), shell_weight = c(1), type = c('F')
+  )
+new_pred <- new_obs %>%
+  bind_cols(lm_fit %>%
+              predict(new_data = new_obs))
+new_pred
+
+```
+Predicted Age: 21.94
+
+7. 
+```{r}
+library(yardstick)
+new_metric <- metric_set(rsq, rmse, mae)
+preds <- abalone_train %>%
+  select(age) %>%
+  bind_cols(lm_fit %>%
+              predict(abalone_train))
+preds %>%
+  new_metric(age, .pred)
+```
+R^2: 0.55
+Root Mean Square Error: 2.16
+Mean Absolute Error: 1.55
+
+R^2 depicts how well the predicted values fit the actual values. Since ours is about 0.55, that means about 55% of the observed variabilty is explained by our model. 
